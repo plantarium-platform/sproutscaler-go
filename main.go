@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/plantarium-platform/graftnode-go/services/haproxy"
+	"github.com/plantarium-platform/sproutscaler-go/sproutscaler"
 	"os"
 	"os/exec"
 	"strconv"
@@ -39,13 +40,24 @@ func main() {
 	// Create a new HAProxyClient
 	haproxyClient := haproxy.NewHAProxyClient()
 
-	// Add the Java service with ID 1 to the "service-backend"
-	err := haproxyClient.BindService("service-backend", "java-service-1", "localhost", 8081)
+	// Create a new SproutScaler with a maximum of 5 instances
+	scaler := sproutscaler.NewSproutScaler(haproxyClient, "service-backend", 5)
+
+	// Delete all existing servers from the backend
+	err := haproxyClient.DeleteAllServersFromBackend("service-backend")
 	if err != nil {
-		fmt.Printf("Error adding Java service to HAProxy: %v\n", err)
+		fmt.Printf("Error deleting servers from backend: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("Java service with ID 1 added to HAProxy")
+	fmt.Println("Deleted all servers from the 'service-backend'")
+
+	// Add the first instance to the backend
+	err = scaler.AddInstance()
+	if err != nil {
+		fmt.Printf("Error adding instance to HAProxy: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Added the first instance to HAProxy")
 
 	// Keep the main goroutine running
 	select {}
