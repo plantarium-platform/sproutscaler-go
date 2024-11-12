@@ -1,4 +1,4 @@
-package sproutscaler
+package scaler
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"log"
 )
 
+// SproutScaler manages scaling decisions, handling instance addition and removal
 type SproutScaler struct {
 	haproxyClient *haproxy.HAProxyClient
 	backendName   string
@@ -13,6 +14,7 @@ type SproutScaler struct {
 	instances     []int
 }
 
+// NewSproutScaler initializes and returns a new SproutScaler
 func NewSproutScaler(haproxyClient *haproxy.HAProxyClient, backendName string, maxInstances int) *SproutScaler {
 	return &SproutScaler{
 		haproxyClient: haproxyClient,
@@ -22,6 +24,7 @@ func NewSproutScaler(haproxyClient *haproxy.HAProxyClient, backendName string, m
 	}
 }
 
+// AddInstance adds a new instance to HAProxy and tracks it locally
 func (s *SproutScaler) AddInstance() error {
 	if len(s.instances) >= s.maxInstances {
 		return fmt.Errorf("cannot add more instances, maximum of %d reached", s.maxInstances)
@@ -40,6 +43,7 @@ func (s *SproutScaler) AddInstance() error {
 	return nil
 }
 
+// RemoveInstance removes the most recently added instance from HAProxy and local tracking
 func (s *SproutScaler) RemoveInstance() error {
 	if len(s.instances) == 0 {
 		log.Println("No servers to remove from the backend")
@@ -59,6 +63,29 @@ func (s *SproutScaler) RemoveInstance() error {
 	return nil
 }
 
+// GetInstanceCount returns the current number of instances
 func (s *SproutScaler) GetInstanceCount() int {
 	return len(s.instances)
+}
+
+// Scale adjusts the number of instances based on the calculated adjustment value.
+// Positive values of instanceAdjustment add instances; negative values remove instances.
+func (s *SproutScaler) Scale(instanceAdjustment int) {
+	if instanceAdjustment > 0 {
+		for i := 0; i < instanceAdjustment; i++ {
+			if err := s.AddInstance(); err != nil {
+				log.Printf("Failed to add instance: %v", err)
+				break
+			}
+		}
+	} else if instanceAdjustment < 0 {
+		for i := 0; i < -instanceAdjustment; i++ {
+			if err := s.RemoveInstance(); err != nil {
+				log.Printf("Failed to remove instance: %v", err)
+				break
+			}
+		}
+	} else {
+		log.Println("No scaling adjustment required")
+	}
 }

@@ -2,23 +2,15 @@ package main
 
 import (
 	"fmt"
+
 	"os"
 	"os/exec"
 	"strconv"
-	"time"
 
 	"github.com/plantarium-platform/graftnode-go/services/haproxy"
-	"github.com/plantarium-platform/sproutscaler-go/sproutscaler"
-	"log"
+	"github.com/plantarium-platform/sproutscaler-go/sproutscaler/scaler"
+	"github.com/plantarium-platform/sproutscaler-go/sproutscaler/util"
 )
-
-// getEnv fetches the value of an environment variable or returns a default if not set
-func getEnv(key string, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
-	}
-	return defaultValue
-}
 
 func startJavaApp(id int, port int) {
 	cmd := exec.Command("java", "-jar", "resources/java-service-example-0.1-all.jar", "--instance-id="+strconv.Itoa(id), "--request-delay=1000")
@@ -40,25 +32,8 @@ func startJavaApp(id int, port int) {
 }
 
 func main() {
-	// Fetch max entries and polling interval from environment variables with defaults
-	maxEntriesStr := getEnv("MAX_ENTRIES", "20")
-	pollingIntervalStr := getEnv("POLLING_INTERVAL_SECONDS", "2")
-	EMADepthStr := getEnv("EMA_DEPTH", "5")
-
-	// Convert fetched values to integers
-	maxEntries, err := strconv.Atoi(maxEntriesStr)
-	if err != nil {
-		log.Fatalf("Invalid MAX_ENTRIES value: %v", err)
-	}
-	pollingInterval, err := strconv.Atoi(pollingIntervalStr)
-	if err != nil {
-		log.Fatalf("Invalid POLLING_INTERVAL_SECONDS value: %v", err)
-	}
-
-	EMADepth, err := strconv.Atoi(EMADepthStr)
-	if err != nil {
-		log.Fatalf("Invalid POLLING_INTERVAL_SECONDS value: %v", err)
-	}
+	// Initialize configuration from environment variables
+	config := util.NewConfig()
 
 	// Number of Java app instances
 	instances := 5
@@ -75,10 +50,10 @@ func main() {
 	haproxyClient := haproxy.NewHAProxyClient()
 
 	// Create a new SproutScaler with a maximum of 5 instances
-	scaler := sproutscaler.NewSproutScaler(haproxyClient, "service-backend", 5)
+	sproutScaler := scaler.NewSproutScaler(haproxyClient, "service-backend", config.MaxEntries)
 
 	// Delete all existing servers from the backend
-	err = haproxyClient.DeleteAllServersFromBackend("service-backend")
+	err := haproxyClient.DeleteAllServersFromBackend("service-backend")
 	if err != nil {
 		fmt.Printf("Error deleting servers from backend: %v\n", err)
 		os.Exit(1)
@@ -86,21 +61,19 @@ func main() {
 	fmt.Println("Deleted all servers from the 'service-backend'")
 
 	// Add the first instance to the backend
-	err = scaler.AddInstance()
+	err = sproutScaler.AddInstance()
 	if err != nil {
 		fmt.Printf("Error adding instance to HAProxy: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Println("Added the first instance to HAProxy")
 
-	// Create a StatsStorage object using the configuration value
-	statsStorage := sproutscaler.StatsStorage{
-		Stats:      make([]sproutscaler.BackendStats, 0),
-		MaxEntries: maxEntries, // Parameterized value from environment variable or default
-	}
+	// Initialize StatsStorage with max entries from config
+	statsStorage := util.NewStatsStorage(config.MaxEntries)
 
-	// Start polling HAProxy stats in a separate goroutine
-	go sproutscaler.PollHAProxyStats("service-backend", &statsStorage, time.Duration(pollingInterval)*time.Second, EMADepth)
+	// Create and start the Poller with StatsStorage, SproutScaler, and configuration
+	poller := scaler.NewPoller(statsStorage, sproutScaler, config.BaseSensitivity, config.PollingInterval, "service-backend")
+	go poller.StartPolling()
 
 	// Keep the main goroutine running
 	select {}
