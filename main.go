@@ -70,11 +70,12 @@ func main() {
 
 	// Initialize StatsStorage with max entries from config
 	statsStorage := util.NewStatsStorage(config.MaxEntries)
+	// Create the ScalingAlgorithm with base sensitivity and reference to storage
+	scalingAlgorithm := scaler.NewScalingAlgorithm(config.BaseSensitivity, statsStorage)
 
-	// Create and start the Poller with StatsStorage, SproutScaler, and configuration
-	poller := scaler.NewPoller(statsStorage, sproutScaler, config.BaseSensitivity, config.PollingInterval, "service-backend")
+	// Create and start the Poller with StatsStorage, SproutScaler, ScalingAlgorithm, and configuration
+	poller := scaler.NewPoller(statsStorage, sproutScaler, scalingAlgorithm, config.PollingInterval, "service-backend")
 	go poller.StartPolling()
-
 	// Keep the main goroutine running
 	select {}
 }

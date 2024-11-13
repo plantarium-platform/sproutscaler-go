@@ -44,9 +44,10 @@ func (s *SproutScaler) AddInstance() error {
 }
 
 // RemoveInstance removes the most recently added instance from HAProxy and local tracking
+// but ensures at least one instance remains active.
 func (s *SproutScaler) RemoveInstance() error {
-	if len(s.instances) == 0 {
-		log.Println("No servers to remove from the backend")
+	if len(s.instances) <= 1 {
+		log.Println("Cannot remove instance; at least one server must remain active.")
 		return nil
 	}
 

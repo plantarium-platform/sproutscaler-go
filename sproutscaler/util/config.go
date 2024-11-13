@@ -17,7 +17,7 @@ type Config struct {
 
 // NewConfig initializes and returns a Config struct with environment variables or default values
 func NewConfig() *Config {
-	maxEntries := getEnvAsInt("MAX_ENTRIES", 10)
+	maxEntries := getEnvAsInt("MAX_ENTRIES", 5)
 	pollingInterval := time.Duration(getEnvAsInt("POLLING_INTERVAL_SECONDS", 2)) * time.Second
 	emaDepth := getEnvAsInt("EMA_DEPTH", 5)
 	baseSensitivity := getEnvAsFloat("BASE_SENSITIVITY", 0.05)
