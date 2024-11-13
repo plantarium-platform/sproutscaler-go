@@ -50,7 +50,7 @@ func main() {
 	haproxyClient := haproxy.NewHAProxyClient()
 
 	// Create a new SproutScaler with a maximum of 5 instances
-	sproutScaler := scaler.NewSproutScaler(haproxyClient, "service-backend", config.MaxEntries)
+	sproutScaler := scaler.NewSproutScaler(haproxyClient, "service-backend", 5)
 
 	// Delete all existing servers from the backend
 	err := haproxyClient.DeleteAllServersFromBackend("service-backend")
@@ -71,7 +71,7 @@ func main() {
 	// Initialize StatsStorage with max entries from config
 	statsStorage := util.NewStatsStorage(config.MaxEntries)
 	// Create the ScalingAlgorithm with base sensitivity and reference to storage
-	scalingAlgorithm := scaler.NewScalingAlgorithm(config.BaseSensitivity, statsStorage)
+	scalingAlgorithm := scaler.NewScalingAlgorithm(config.BaseSensitivityUp, config.BaseSensitivityDown, statsStorage)
 
 	// Create and start the Poller with StatsStorage, SproutScaler, ScalingAlgorithm, and configuration
 	poller := scaler.NewPoller(statsStorage, sproutScaler, scalingAlgorithm, config.PollingInterval, "service-backend")

@@ -42,8 +42,10 @@ func SendRequests(url string, baseDelay time.Duration, id int) {
 func main() {
 	// Configurable parameters
 	const url = "http://localhost/hello"
-	numThreads := 50         // Number of concurrent threads (goroutines)
+	initialThreads := 10     // Initial number of threads (goroutines)
 	baseDelay := time.Second // Base delay between requests
+	increment := 10          // Number of new threads to add every 10 seconds
+	maxThreads := 200        // Maximum number of threads
 
 	// Seed the random number generator
 	rand.Seed(time.Now().UnixNano())
@@ -55,8 +57,9 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 
-	// Start the specified number of goroutines
-	for i := 0; i < numThreads; i++ {
+	// Start with initial threads
+	currentThreads := initialThreads
+	for i := 0; i < currentThreads; i++ {
 		wg.Add(1)
 		go func(threadID int) {
 			defer wg.Done()
@@ -64,7 +67,35 @@ func main() {
 		}(i)
 	}
 
+	// Add more threads incrementally every 10 seconds
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	go func() {
+		for range ticker.C {
+			if currentThreads >= maxThreads {
+				break
+			}
+			newThreads := increment
+			if currentThreads+newThreads > maxThreads {
+				newThreads = maxThreads - currentThreads
+			}
+
+			for i := 0; i < newThreads; i++ {
+				wg.Add(1)
+				go func(threadID int) {
+					defer wg.Done()
+					SendRequests(url, baseDelay, threadID)
+				}(currentThreads + i)
+			}
+
+			currentThreads += newThreads
+			log.Printf("Added %d new threads, total threads: %d", newThreads, currentThreads)
+		}
+	}()
+
 	// Wait for interrupt signal
 	<-sigChan
 	log.Println("Received interrupt signal, shutting down...")
+	wg.Wait()
 }
