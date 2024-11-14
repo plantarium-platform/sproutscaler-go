@@ -1,5 +1,5 @@
 
-# SproutScaler: Intelligent Auto-Scaling Solution for HAProxy-Based Infrastructure
+# SproutScaler: AutoScaling for Plantarium Platform
 
 **SproutScaler** is a core component of the [Plantarium Platform](https://github.com/plantarium-platform), a lightweight and resource-efficient solution inspired by cloud architecture principles, designed for running serverless functions and microservices.
 
@@ -64,7 +64,7 @@ The SproutScaler POC runs a Java service with a simple `/hello` endpoint that re
 
 4. **Testing Load with Tester Script**:
    - Use `tester.go` to simulate load by sending requests to the `/hello` endpoint.
-   
+
 ## Scaling Mechanism
 
 The **SproutScaler** auto-scaling mechanism adjusts instance counts based on observed response times, using an Exponential Moving Average (EMA) for smoothness and stability. This approach enables SproutScaler to react to trends rather than short-term fluctuations, helping maintain optimal performance and efficiency.
@@ -82,9 +82,7 @@ The scaling decision is driven by comparing the **Current EMA** to the **Previou
 
 1. **Delta Percent Calculation**: This measures the percentage change in response time between the Current and Previous EMA. The formula for **Delta Percent** is:
 
-   \[
-   \text{Delta Percent} = \frac{\text{Current EMA} - \text{Previous EMA}}{\text{Previous EMA}}
-   \]
+   $$ \text{Delta Percent} = \frac{\text{Current EMA} - \text{Previous EMA}}{\text{Previous EMA}} $$
 
    - A **positive Delta Percent** signals an increase in response time, potentially indicating a need to add instances.
    - A **negative Delta Percent** indicates a decrease in response time, which can trigger instance removal if conditions are met.
@@ -93,27 +91,31 @@ The scaling decision is driven by comparing the **Current EMA** to the **Previou
 
    - **Adding Instances**: When Delta Percent is positive, the adjustment formula applies a **BaseSensitivityUp** parameter to calculate the number of instances to add:
 
-     \[
-     \text{Instance Adjustment (Up)} = \left( \text{Delta Percent} \times \text{BaseSensitivityUp} \times e^{\frac{6}{\text{Instance Count} + 1}} \right)
-     \]
+     $$ \text{Instance Adjustment (Up)} = \text{Delta Percent} \times \text{BaseSensitivityUp} \times e^{\frac{6}{\text{Instance Count} + 1}} $$
 
    - **Removing Instances**: When Delta Percent is negative, the formula uses a **BaseSensitivityDown** parameter to calculate the number of instances to remove:
 
-     \[
-     \text{Instance Adjustment (Down)} = \left( \text{Delta Percent} \times \text{BaseSensitivityDown} \times e^{\frac{4.83}{\text{Instance Count} + 1}} \right)
-     \]
+     $$ \text{Instance Adjustment (Down)} = \text{Delta Percent} \times \text{BaseSensitivityDown} \times e^{\frac{4.83}{\text{Instance Count} + 1}} $$
 
 3. **Total Instance Adjustment**: The final instance adjustment value is calculated as:
 
-   \[
-   \text{instanceAdjustment} = \text{int}(\text{Delta Percent} \times \text{Adjusted Sensitivity})
-   \]
+   $$ \text{instanceAdjustment} = \text{int}(\text{Delta Percent} \times \text{Adjusted Sensitivity}) $$
 
 ### Parameter Explanation
 
-- **Base Sensitivity (Up and Down)**: These parameters define the aggressiveness of scaling in either direction. `BaseSensitivityUp` is tuned to ensure new instances are added when the response time increases by a certain percentage (e.g., 5%). Similarly, `BaseSensitivityDown` is set to trigger instance removal only after sustained improvement or no demand.
+- **Base Sensitivity (Up and Down)**: These parameters define the aggressiveness of scaling in each direction.
+   - `BaseSensitivityUp` is calibrated to trigger the addition of new instances when the response time increases by a set percentage (e.g., 5%).
+   - `BaseSensitivityDown` is set to initiate instance removal only after a period of sustained improvement or low demand.
 
-- **Exponential Formula**: The exponential adjustment, \( e^{\frac{6}{\text{Instance Count} + 1}} \) or \( e^{\frac{4.83}{\text{Instance Count} + 1}} \), helps make scaling decisions progressively more conservative as the instance count rises. This approach prevents excessive scaling in larger deployments, encouraging stability by gradually reducing sensitivity as more instances are added.
+- **Exponential Formula**: The exponential scaling factor is applied as follows:
+   - For adding instances: $e^{\frac{6}{\text{Instance Count} + 1}}$
+   - For removing instances: $e^{\frac{4.83}{\text{Instance Count} + 1}}$
+
+  These factors were selected based on specific percentage thresholds for response time changes:
+   - The constant `6` ensures that a second instance will be added when the response time EMA increases by 5%.
+   - The constant `4.83` triggers the removal of an instance when the response time EMA decreases by 20%.
+
+  This approach helps avoid excessive scaling in larger deployments, gradually reducing sensitivity as more instances are added, thus promoting stability by making scaling decisions more conservative with higher instance counts.
 
 ### Cooldown Mechanism
 
