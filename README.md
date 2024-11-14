@@ -91,15 +91,12 @@ The scaling decision is driven by comparing the **Current EMA** to the **Previou
 
    - **Adding Instances**: When Delta Percent is positive, the adjustment formula applies a **BaseSensitivityUp** parameter to calculate the number of instances to add:
 
-   $$ \text{Instance Adjustment (Up)} = \text{Delta Percent} \times \text{BaseSensitivityUp} \times e^{\frac{6}{\text{Instance Count} + 1}} $$
+     
+$$ \text{Instance Adjustment Up} = \text{int}(\text{Delta Percent} \times \text{BaseSensitivityUp} \times e^{\frac{6}{\text{Instance Count} + 1}}) $$
 
    - **Removing Instances**: When Delta Percent is negative, the formula uses a **BaseSensitivityDown** parameter to calculate the number of instances to remove:
 
-   $$ \text{Instance Adjustment (Down)} = \text{Delta Percent} \times \text{BaseSensitivityDown} \times e^{\frac{4.83}{\text{Instance Count} + 1}} $$
-
-3. **Total Instance Adjustment**: The final instance adjustment value is calculated as:
-
-   $$ \text{instanceAdjustment} = \text{int}(\text{Delta Percent} \times \text{Adjusted Sensitivity}) $$
+   $$ \text{Instance Adjustment Down} = \text{int}(\text{Delta Percent} \times \text{BaseSensitivityDown} \times e^{\frac{4.83}{\text{Instance Count} + 1}}) $$
 
 ### Parameter Explanation
 
