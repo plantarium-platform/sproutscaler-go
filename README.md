@@ -1,58 +1,135 @@
-# SproutScaler: Intelligent Auto-Scaling Solution
 
-SproutScaler is an intelligent auto-scaling component that dynamically manages the number of instances in an HAProxy-based infrastructure. It is designed to aggressively add and remove instances to optimize energy consumption while maintaining service performance.
+# SproutScaler: Intelligent Auto-Scaling Solution for HAProxy-Based Infrastructure
 
-## Current Structure and POC
+**SproutScaler** is a core component of the [Plantarium Platform](https://github.com/plantarium-platform), a lightweight and resource-efficient solution inspired by cloud architecture principles, designed for running serverless functions and microservices.
 
-The current structure of the SproutScaler project consists of the following key components:
+SproutScaler is an intelligent auto-scaling tool that dynamically manages the number of instances in an HAProxy-based infrastructure. It is designed to dynamically adjust the number of instances of monitored services based on observed metrics, responding to both increases and decreases in demand.
 
-### HAProxyClient
+## Project Structure
 
-This component provides a high-level interface for managing the HAProxy configuration, including creating backends, adding and removing servers, and handling transactions.
+```
+.
+├── go.mod               # Go module definition for dependencies
+├── go.sum               # Checksums for Go modules
+├── LICENSE              # License for SproutScaler
+├── main.go              # Main application to initialize components and start polling
+├── README.md            # Project documentation
+├── resources
+│   └── java-service-example-0.1-all.jar # Example Java service used in the POC
+├── sproutscaler         # Core package directory for SproutScaler
+│   ├── scaler           # Core logic for polling, scaling, and algorithms
+│   │   ├── poller.go          # Polling logic to gather stats from HAProxy
+│   │   ├── scaler.go          # Core scaling operations (adding/removing instances)
+│   │   └── scaling_algorithm.go # Logic for calculating adjustments based on EMA and other metrics
+│   └── util             # Utility functions and configuration management
+│       ├── config.go         # Loads environment-based configuration
+│       └── stats_storage.go  # Stores and manages historical stats for EMA calculations
+└── tester.go            # Script to simulate load on the Java service instances
+```
 
-### SproutScaler
+## Proof of Concept (POC)
 
-This is the core component of the project, responsible for managing the instances in the HAProxy backend. It uses the `HAProxyClient` to perform the necessary operations.
+The SproutScaler POC runs a Java service with a simple `/hello` endpoint that responds with "hello" and has a response time of 1+ second. The objective of the POC is to validate the auto-scaling capabilities of SproutScaler, specifically:
 
-### Main Application
+1. **Running Java Instances in HAProxy Backend**:
+   - Initializes and manages up to 5 Java instances.
+   - Responds dynamically to increase or decrease in demand based on response times by changing the amount of servers in HAProxy Backend (so far between 1 and 5)
 
-The main application, located in the `graftnode-go/main.go` file, creates the `HAProxyClient` and `SproutScaler` instances, and utilizes the `SproutScaler` component to manage the instances.
+2. **Dynamic Scaling Based on Response Times**:
+   - **Adding Instances**: Scales up instances when response times degrade by more than 5%.
+   - **Removing Instances**: Scales down instances when response times improve by over 20% and remain stable, or when no requests have been detected over a defined period.
 
-The current POC (Proof of Concept) implementation of the SproutScaler focuses on the following functionality:
+3. **Integration with Dataplane API**:
+   - Uses HAProxy’s Dataplane API for seamless management of backend instances as servers in HAProxy Backend
+   - Monitors backend metrics and adjusts service count accordingly.
 
-1. **Instance Management**
-    - The SproutScaler can add and remove instances from the HAProxy backend, up to a maximum of 5 instances.
-    - It uses a LIFO (Last-In-First-Out) approach to manage the instances, ensuring that the most recently added instances are the first to be removed.
+## Running Instructions
 
-2. **Transactional Operations**
-    - All operations performed by the SproutScaler, such as adding and removing instances, are wrapped in transactions to ensure consistency and reliability.
+1. **Prerequisites**:
+   - Ensure Go is installed and configured.
+   - Set up the required HAProxy instance by following instructions from the [Plantarium Platform Graftnode Go repository](https://github.com/plantarium-platform/graftnode-go).
+   - Ensure HAProxy is configured with Dataplane API enabled.
 
-3. **Hardcoded Instance Configuration**
-    - The current POC assumes that the instances are Java applications running on ports `8080` to `8084`.
-    - The instance names are also hardcoded as `java-service-1` to `java-service-5`.
+2. **Environment Configuration**:
+   - Define environment variables as per your requirements, or rely on defaults:
+      - `MAX_ENTRIES` (default: 10) - Maximum historical entries for EMA calculations.
+      - `POLLING_INTERVAL_SECONDS` (default: 1) - Interval for polling HAProxy in seconds.
+      - `EMA_DEPTH` (default: 10) - Depth for EMA calculation.
+      - `BASE_SENSITIVITY_UP` and `BASE_SENSITIVITY_DOWN` - Sensitivity thresholds for scaling decisions.
+
+3. **Starting SproutScaler**:
+   ```bash
+   go run main.go
+   ```
+
+4. **Testing Load with Tester Script**:
+   - Use `tester.go` to simulate load by sending requests to the `/hello` endpoint.
+   
+## Scaling Mechanism
+
+The **SproutScaler** auto-scaling mechanism adjusts instance counts based on observed response times, using an Exponential Moving Average (EMA) for smoothness and stability. This approach enables SproutScaler to react to trends rather than short-term fluctuations, helping maintain optimal performance and efficiency.
+
+### Monitoring and EMA Calculation
+
+SproutScaler continuously monitors the response time (`Rtime`) of each instance and calculates an EMA over a configured historical window of `N` steps. EMA smooths out sudden fluctuations in response time, providing a more stable trend line to base scaling decisions on. Specifically:
+
+- The **Previous EMA** is defined as the EMA recorded `N` steps ago.
+- The **Current EMA** is the most recent EMA calculated for the current observation.
+
+### Instance Adjustment Calculation
+
+The scaling decision is driven by comparing the **Current EMA** to the **Previous EMA** over the historical window:
+
+1. **Delta Percent Calculation**: This measures the percentage change in response time between the Current and Previous EMA. The formula for **Delta Percent** is:
+
+   \[
+   \text{Delta Percent} = \frac{\text{Current EMA} - \text{Previous EMA}}{\text{Previous EMA}}
+   \]
+
+   - A **positive Delta Percent** signals an increase in response time, potentially indicating a need to add instances.
+   - A **negative Delta Percent** indicates a decrease in response time, which can trigger instance removal if conditions are met.
+
+2. **Instance Adjustment Formula**: To determine how many instances to add or remove, SproutScaler uses an exponential sensitivity adjustment based on `BaseSensitivity` parameters and the current instance count:
+
+   - **Adding Instances**: When Delta Percent is positive, the adjustment formula applies a **BaseSensitivityUp** parameter to calculate the number of instances to add:
+
+     \[
+     \text{Instance Adjustment (Up)} = \left( \text{Delta Percent} \times \text{BaseSensitivityUp} \times e^{\frac{6}{\text{Instance Count} + 1}} \right)
+     \]
+
+   - **Removing Instances**: When Delta Percent is negative, the formula uses a **BaseSensitivityDown** parameter to calculate the number of instances to remove:
+
+     \[
+     \text{Instance Adjustment (Down)} = \left( \text{Delta Percent} \times \text{BaseSensitivityDown} \times e^{\frac{4.83}{\text{Instance Count} + 1}} \right)
+     \]
+
+3. **Total Instance Adjustment**: The final instance adjustment value is calculated as:
+
+   \[
+   \text{instanceAdjustment} = \text{int}(\text{Delta Percent} \times \text{Adjusted Sensitivity})
+   \]
+
+### Parameter Explanation
+
+- **Base Sensitivity (Up and Down)**: These parameters define the aggressiveness of scaling in either direction. `BaseSensitivityUp` is tuned to ensure new instances are added when the response time increases by a certain percentage (e.g., 5%). Similarly, `BaseSensitivityDown` is set to trigger instance removal only after sustained improvement or no demand.
+
+- **Exponential Formula**: The exponential adjustment, \( e^{\frac{6}{\text{Instance Count} + 1}} \) or \( e^{\frac{4.83}{\text{Instance Count} + 1}} \), helps make scaling decisions progressively more conservative as the instance count rises. This approach prevents excessive scaling in larger deployments, encouraging stability by gradually reducing sensitivity as more instances are added.
+
+### Cooldown Mechanism
+
+The cooldown mechanism delays scaling adjustments after any recent changes in instance count, whether due to adding or removing instances. This approach prevents immediate oscillation in scaling and provides a stabilization period to observe the effect of recent adjustments on the system’s response time.
+
+### Zero Response Condition
+
+If response times remain zero for `N` steps, indicating a lack of demand, SproutScaler will reduce instances to a minimum of one, preserving resources without fully deactivating service availability.
 
 ## Future Enhancements
 
-The current POC is a basic implementation of the SproutScaler component. To make it a more intelligent and dynamic auto-scaling solution, the following enhancements can be made:
+This POC is an initial phase in integrating SproutScaler into the broader Plantarium ecosystem. Future development will focus on:
+- **Ecosystem Integration**: As components in Plantarium are finalized, SproutScaler will relay signals to add or remove service instances across the ecosystem.
+- **Idle Instance Replacement**: If services remain idle for extended periods, SproutScaler will replace the active instance with a graftnode instance, ready to respond to renewed demand.
+- **Multi-Backend Processing**: Each backend service (leaf) in HAProxy will be processed independently, with listeners specific to their metrics and response requirements.
 
-1. **Dynamic Instance Configuration**
-    - Instead of hardcoding the instance names and ports, the SproutScaler should be able to handle instances with dynamic configurations.
-    - This will allow the SproutScaler to manage instances of different types, not just Java applications.
+## Contact
 
-2. **Monitoring and Scaling Triggers**
-    - The SproutScaler should monitor the performance and utilization of the HAProxy backend, such as throughput, response times, and resource usage.
-    - Based on these metrics, the SproutScaler should be able to dynamically add or remove instances to ensure optimal performance and energy efficiency.
-
-3. **Scaling Algorithms and Policies**
-    - The SproutScaler should employ more advanced scaling algorithms and policies, such as threshold-based scaling, predictive scaling, or reinforcement learning-based approaches.
-    - These algorithms should be able to make informed decisions about when and how many instances to add or remove, based on the observed metrics and historical data.
-
-4. **Integration with Monitoring and Alerting Systems**
-    - The SproutScaler should be able to integrate with external monitoring and alerting systems, such as Prometheus, Grafana, or PagerDuty.
-    - This will allow the SproutScaler to receive real-time updates on the infrastructure's performance and trigger scaling actions based on predefined thresholds or alerts.
-
-5. **Adaptive and Self-Learning Capabilities**
-    - The SproutScaler should have the ability to learn from past scaling actions and adjust its algorithms and policies accordingly.
-    - This will enable the SproutScaler to become more intelligent and efficient over time, optimizing the infrastructure's performance and energy usage.
-
-By implementing these enhancements, the SproutScaler can evolve into a truly intelligent and dynamic auto-scaling solution, capable of maintaining optimal service performance while minimizing energy consumption and costs.
+If you have questions or want to contribute, feel free to reach out on [GitHub](https://github.com/glorko) or [Telegram](https://t.me/glorfindeil).
